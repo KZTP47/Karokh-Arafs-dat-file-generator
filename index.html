@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Karokh's DAT-filgenerator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -60,8 +61,8 @@
             <h2>1. Ladda upp filer</h2>
             <div class="file-input-group">
                 <div class="file-input">
-                    <label for="csvFile">CSV-fil</label>
-                    <input type="file" id="csvFile" accept=".csv">
+                    <label for="inputFile">CSV- eller XLSX-fil</label>
+                    <input type="file" id="inputFile" accept=".csv,.xlsx">
                 </div>
                 <div class="file-input">
                     <label for="xmlFile">XML-fil</label>
@@ -69,7 +70,7 @@
                 </div>
             </div>
         </div>
-        
+        <!-- Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf -->
         <div class="section rules-section">
             <h2>2. Definiera IG-regler (frivilligt)</h2>
             <p>Dessa regler bestämmer IG-värdet. Om ingen regel matchar används "IG1" som standard.</p>
@@ -79,7 +80,7 @@
 
         <div class="section rules-section">
             <h2>3. Sökmappningsregler (viktigt)</h2>
-            <p>Dessa regler styr sökningen i XML-filen. Ange ett eller flera XML-suffix (kommaseparerade) för varje ID-prefix från CSV-filen.</p>
+            <p>Dessa regler styr sökningen i XML-filen. Ange ett eller flera XML-suffix (kommaseparerade) för varje ID-prefix från indatafilen.</p>
             <div id="mappingRulesContainer"></div>
             <button id="addMappingBtn">Lägg till Sökregel</button>
         </div>
@@ -98,25 +99,47 @@
             <textarea id="outputPreview" readonly placeholder="Genererat innehåll visas här..."></textarea>
         </div>
     </div>
-
+<!-- Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf, Karokh Araf -->
     <script>
         let generatedContent = '';
         let csvData = null;
         let xmlDoc = null;
 
-        document.getElementById('csvFile').addEventListener('change', handleCSVFile);
+        document.getElementById('inputFile').addEventListener('change', handleInputFile);
         document.getElementById('xmlFile').addEventListener('change', handleXMLFile);
         document.getElementById('addMappingBtn').addEventListener('click', addMappingRule);
         document.getElementById('addIgRuleBtn').addEventListener('click', addIgRule);
         document.getElementById('generateBtn').addEventListener('click', generateDAT);
         document.getElementById('downloadBtn').addEventListener('click', downloadDATFile);
         
-        function handleCSVFile(event) {
-            const file = event.target.files[0]; if (!file) return;
+        // UPPDATERAD: Denna funktion hanterar nu både CSV och XLSX
+        function handleInputFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
             const reader = new FileReader();
-            reader.onload = (e) => { csvData = e.target.result; showStatus(`CSV-fil '${file.name}' har lästs in.`, 'info'); };
+            const fileName = file.name.toLowerCase();
+
+            if (fileName.endsWith('.xlsx')) {
+                // Logik för att hantera XLSX-filer
+                reader.onload = function(e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    csvData = XLSX.utils.sheet_to_csv(worksheet, { header: 1 });
+                    showStatus(`XLSX-fil '${file.name}' har lästs in och konverterats.`, 'info');
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                // Befintlig logik för CSV-filer
+                reader.onload = (e) => {
+                    csvData = e.target.result;
+                    showStatus(`CSV-fil '${file.name}' har lästs in.`, 'info');
+                };
+                reader.readAsText(file, 'ISO-8859-1');
+            }
             reader.onerror = () => showStatus(`Fel vid inläsning av fil: ${file.name}`, 'error');
-            reader.readAsText(file, 'ISO-8859-1');
         }
 
         function handleXMLFile(event) {
@@ -178,19 +201,29 @@
 
         async function generateDAT() {
             try {
-                if (!csvData) throw new Error("Vänligen ladda upp en CSV-fil.");
+                if (!csvData) throw new Error("Vänligen ladda upp en CSV- eller XLSX-fil.");
                 if (!xmlDoc) throw new Error("Vänligen ladda upp en XML-fil.");
 
                 const mappingRules = getRules('mappingRulesContainer');
                 const igRules = getRules('igRulesContainer');
                 
                 const rows = csvData.trim().split(/\r?\n/);
+                if (rows.length === 0) throw new Error("Indatafilen är tom eller felaktigt formaterad.");
+
+                const firstLine = rows[0];
+                const commaCount = (firstLine.match(/,/g) || []).length;
+                const semicolonCount = (firstLine.match(/;/g) || []).length;
+                const delimiter = semicolonCount > commaCount ? ';' : ',';
+
                 const outputLines = [];
                 const indications = Array.from(xmlDoc.getElementsByTagName('Indication700'));
-
-                for (const row of rows) {
+                
+                // Börja från rad 1 (index 1) för att hoppa över eventuell rubrikrad
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
                     if (!row) continue;
-                    const cols = row.split(',');
+                    
+                    const cols = row.split(delimiter); 
                     if (cols.length < 10) continue; 
 
                     const recordType = '1';
@@ -201,7 +234,7 @@
                     const terminal = normalizedH.substring(0, 3);
                     const baseSearchTerm = (normalizedH.split(' ')[0] + ' ' + normalizedH.split(' ')[1]).trim();
 
-                    if (!id || !ebilockNo || !baseSearchTerm) continue;
+                    if (!id || !ebilockNo || !baseSearchTerm || !cols[6] || !cols[7] || !cols[9]) continue;
 
                     let ig = 'IG1';
                     const matchingIgRule = igRules.find(rule => id.startsWith(rule.prefix));
@@ -259,7 +292,7 @@
                 }
 
                 if (outputLines.length === 0) {
-                     throw new Error("Inga rader kunde genereras. Kontrollera indatafilerna och reglerna.");
+                     throw new Error("Inga rader kunde genereras. Kontrollera att indatafilerna har innehåll på förväntat format och att reglerna är korrekta.");
                 }
 
                 generatedContent = outputLines.join('\r\n');
@@ -302,5 +335,4 @@
         }
     </script>
 </body>
-
 </html>
